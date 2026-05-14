@@ -1,8 +1,10 @@
-# Initial dev environment setup
+# Initial dev environment eks setup cluster
 
 data "aws_caller_identity" "current" {}
 
 module "vpc" {
+
+  
   source = "../../modules/vpc"
 
   project                  = "pharma"
