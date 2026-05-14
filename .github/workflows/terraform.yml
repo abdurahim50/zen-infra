@@ -34,6 +34,7 @@ permissions:
 env:
   TF_VERSION: '1.10.0'
   AWS_REGION: us-east-1
+  TF_STATE_BUCKET: zen-pharma-terraform-state-abdurahim50 # ← replace with your own bucket name
 
 # Prevent parallel runs on the same branch — avoids state conflicts
 concurrency:
