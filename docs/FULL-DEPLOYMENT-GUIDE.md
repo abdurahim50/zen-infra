@@ -289,10 +289,10 @@ kubectl get nodes
 
 ## Stage 2 — Install Kubernetes Pre-requisites
 
-After the EKS cluster is running, install three cluster-level components.
+After the EKS cluster is running, install four cluster-level components.
 All scripts prompt you for values — no hardcoding required.
 
-### Step 2.1 — Install NGINX Ingress, ArgoCD, External Secrets Operator
+### Step 2.1 — Install NGINX Ingress, ArgoCD, External Secrets Operator, metrics-server
 
 ```bash
 ./scripts/01-install-prerequisites.sh
@@ -309,6 +309,7 @@ Then installs:
 | ingress-nginx | `ingress-nginx` | AWS NLB exposes services to the internet |
 | argocd | `argocd` | Watches zen-gitops, syncs manifests to EKS |
 | external-secrets | `external-secrets` | Pulls secrets from AWS Secrets Manager |
+| metrics-server | `kube-system` | CPU/memory metrics for HPA and `kubectl top` |
 
 At the end, the script prints the **ArgoCD admin password** — save it.
 

@@ -14,6 +14,7 @@ Setup guide for installing cluster prerequisites on `pharma-dev-cluster` to supp
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo add external-secrets https://charts.external-secrets.io
 helm repo add argo https://argoproj.github.io/argo-helm
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
 helm repo update
 ```
 
@@ -97,7 +98,32 @@ kubectl get crd | grep external-secrets
 
 ---
 
-## Step 4 — Deploy Frontend via ArgoCD
+## Step 4 — metrics-server
+
+Collects CPU and memory usage from worker nodes. Required for **Horizontal Pod Autoscaler (HPA)** in prod and for `kubectl top`.
+
+```bash
+helm upgrade --install metrics-server metrics-server/metrics-server \
+  --namespace kube-system \
+  --set args="{--kubelet-insecure-tls}" \
+  --wait --timeout 5m
+```
+
+> `--kubelet-insecure-tls` is commonly needed on EKS lab clusters where kubelet serving certificates are not signed by the cluster CA.
+
+**Verify:**
+
+```bash
+kubectl get deployment metrics-server -n kube-system
+kubectl top nodes
+kubectl top pods -A
+```
+
+If `kubectl top` returns "Metrics API not available", wait 30–60 seconds and retry.
+
+---
+
+## Step 5 — Deploy Frontend via ArgoCD
 
 With all prerequisites running, register the ArgoCD project and deploy the `pharma-ui` application.
 
@@ -131,6 +157,7 @@ kubectl get ingress -n dev
 | ingress-nginx | `ingress-nginx` | Route external HTTP/S traffic into the cluster |
 | argocd | `argocd` | GitOps sync from `zen-gitops` repo |
 | external-secrets | `external-secrets` | Pull secrets from AWS Secrets Manager |
+| metrics-server | `kube-system` | CPU/memory metrics for HPA and `kubectl top` |
 | pharma-ui | `dev` | React frontend served via Nginx |
 
 ---

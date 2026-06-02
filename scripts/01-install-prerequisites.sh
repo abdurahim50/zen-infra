@@ -6,6 +6,7 @@
 #   1. NGINX Ingress Controller   - exposes services via AWS NLB
 #   2. ArgoCD                     - GitOps CD controller
 #   3. External Secrets Operator  - syncs AWS Secrets Manager -> K8s Secrets
+#   4. metrics-server             - CPU/memory metrics for HPA and kubectl top
 #
 # Run from the root of the dpp-assignment3 directory.
 # The script prompts for all required values - nothing is hardcoded.
@@ -74,8 +75,8 @@ echo "============================================"
 echo "  Zen Pharma -- Pre-requisites Installer"
 echo "============================================"
 echo ""
-echo "  This script installs NGINX Ingress, ArgoCD, and External Secrets"
-echo "  Operator on your EKS cluster using Helm."
+echo "  This script installs NGINX Ingress, ArgoCD, External Secrets"
+echo "  Operator, and metrics-server on your EKS cluster using Helm."
 echo ""
 echo "  You will be asked for 2 values:"
 echo "    1. EKS cluster name  - from Terraform outputs or AWS console"
@@ -125,6 +126,7 @@ info "Adding Helm repositories..."
 helm repo add ingress-nginx    https://kubernetes.github.io/ingress-nginx --force-update 2>/dev/null
 helm repo add external-secrets https://charts.external-secrets.io         --force-update 2>/dev/null
 helm repo add argo             https://argoproj.github.io/argo-helm       --force-update 2>/dev/null
+helm repo add metrics-server   https://kubernetes-sigs.github.io/metrics-server/ --force-update 2>/dev/null
 helm repo update
 log "Helm repos updated."
 
@@ -136,7 +138,7 @@ log "Helm repos updated."
 # =============================================================================
 echo ""
 echo "--------------------------------------------"
-echo "  Step 1 of 3: NGINX Ingress Controller"
+echo "  Step 1 of 4: NGINX Ingress Controller"
 echo "--------------------------------------------"
 
 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
@@ -162,7 +164,7 @@ echo "  NOTE: This hostname is your application entry point. Save it."
 # =============================================================================
 echo ""
 echo "--------------------------------------------"
-echo "  Step 2 of 3: ArgoCD"
+echo "  Step 2 of 4: ArgoCD"
 echo "--------------------------------------------"
 
 helm upgrade --install argocd argo/argo-cd \
@@ -202,7 +204,7 @@ fi
 # =============================================================================
 echo ""
 echo "--------------------------------------------"
-echo "  Step 3 of 3: External Secrets Operator"
+echo "  Step 3 of 4: External Secrets Operator"
 echo "--------------------------------------------"
 
 helm upgrade --install external-secrets external-secrets/external-secrets \
@@ -212,6 +214,24 @@ helm upgrade --install external-secrets external-secrets/external-secrets \
   --wait --timeout 5m
 
 log "External Secrets Operator installed."
+
+# =============================================================================
+# Step 4 - metrics-server
+#
+# Collects CPU and memory metrics from kubelets. Required for Horizontal Pod
+# Autoscaler (HPA) and `kubectl top pods/nodes`.
+# =============================================================================
+echo ""
+echo "--------------------------------------------"
+echo "  Step 4 of 4: metrics-server"
+echo "--------------------------------------------"
+
+helm upgrade --install metrics-server metrics-server/metrics-server \
+  --namespace kube-system \
+  --set args="{--kubelet-insecure-tls}" \
+  --wait --timeout 5m
+
+log "metrics-server installed."
 
 # =============================================================================
 # Verification
@@ -229,6 +249,18 @@ kubectl get pods -n argocd
 echo ""
 echo "External Secrets pods (namespace: external-secrets):"
 kubectl get pods -n external-secrets
+echo ""
+echo "metrics-server (namespace: kube-system):"
+kubectl get deployment metrics-server -n kube-system
+echo ""
+info "Waiting for metrics API (may take up to 60s on first install)..."
+sleep 15
+if kubectl top nodes >/dev/null 2>&1; then
+  log "Metrics API is responding."
+  kubectl top nodes
+else
+  warn "Metrics API not ready yet — run 'kubectl top nodes' again in a minute."
+fi
 
 echo ""
 log "All pre-requisites installed successfully."
