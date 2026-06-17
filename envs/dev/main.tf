@@ -1,5 +1,5 @@
 
-
+# Initial dev environment setup for Pharma application
 data "aws_caller_identity" "current" {}
 
 module "vpc" {
