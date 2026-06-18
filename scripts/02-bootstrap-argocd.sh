@@ -268,6 +268,7 @@ if [[ "$ENV" == "dev" ]]; then
     "supplier-service-app.yaml"
     "manufacturing-service-app.yaml"
     "notification-service-app.yaml"
+    "qc-service-app.yaml"
     "api-gateway-app.yaml"
     "pharma-ui-app.yaml"
   )
