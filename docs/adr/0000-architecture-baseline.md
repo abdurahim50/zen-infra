@@ -30,7 +30,7 @@ An architecture review found 12 blockers, 19 security issues, and several differ
 | inventory-service | Stock levels, replenishment, batch tracking | Java 17, Spring Boot | 8083 | PostgreSQL, schema `inventory` |
 | supplier-service | Suppliers and purchase orders | Java 17, Spring Boot | 8084 | PostgreSQL, schema `procurement` |
 | manufacturing-service | Production orders and batch manufacturing | Java 17, Spring Boot | 8085 | PostgreSQL, schema `manufacturing` |
-| qc-service | Quality control testing of batches | Java 17, Spring Boot | 8086 | H2 in-memory (POC only; data lost on every restart) |
+| qc-service | Quality control testing of batches | Java 17, Spring Boot | 8086 | H2 in-memory today; must move to PostgreSQL (ZPP-4) |
 | notification-service | Email notifications through SMTP (SMS only logged, not sent) | Node.js, Express | 3000 | none |
 | pharma-ui | React web app served by nginx; proxies /api/ to api-gateway | React, nginx (unprivileged) | 8080 | none |
 
@@ -53,7 +53,7 @@ We will use four repositories, nine services, EKS, RDS, ArgoCD, and Helm as our 
 
 - Production changes will require a promotion pull request and a manual sync in ArgoCD. A commit alone will not deploy changes to production.
 
-- Every review finding, including B1–B12, S1–S19, and differences between the documentation and code, must be fixed or have its risk formally accepted before go-live. Each finding will be included in the acceptance criteria for its related epic.
+- Every review finding, including B1 to B12, S1 to S19, and differences between the documentation and code, must be fixed or have its risk formally accepted before go-live. Each finding will be included in the acceptance criteria for its related epic.
 
 - qc-service will store its data in PostgreSQL so quality control records are preserved after restarts.
 
