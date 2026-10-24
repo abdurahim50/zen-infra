@@ -13,6 +13,8 @@
 | --- | --- | --- |
 | zen-infra | All AWS infrastructure as Terraform code: VPC, EKS cluster, RDS PostgreSQL, ECR image repositories, IAM roles (including the GitHub OIDC role) and Secrets Manager entries. Shared modules hold the recipes; one folder per environment (envs/dev, envs/qa, envs/prod) holds its settings and its own state file in an encrypted, locked S3 bucket. | The AWS account (us-east-1), applied by a GitHub Actions pipeline after a PR is merged. |
 | zen-gitops | The desired state of every environment: one shared Helm chart (pharma-service) used by all 9 services, one values file per service per environment (envs/dev, envs/qa, envs/prod) holding image tag, port and settings, the ArgoCD application definitions, and the External Secrets setup that pulls secrets from AWS Secrets Manager into the cluster. CI never deploys directly: it only changes a values file in Git, and ArgoCD running inside the cluster pulls that change (pull model). | The EKS cluster, applied by ArgoCD: dev syncs automatically, qa syncs after a promotion PR is merged, prod needs a promotion PR plus a manual sync. |
+| zen-pharma-backend | Source code for the 8 API services: api-gateway, auth, drug-catalog, inventory, supplier, manufacturing and qc (Java 17, Spring Boot) and notification (Node.js, Express). One CI pipeline per service, built from shared reusable workflows: build, unit tests with coverage, SAST (CodeQL, Semgrep), dependency scan, Docker build, Trivy image scan, push to ECR, Cosign signature, then a commit that updates the image tag in zen-gitops. | Container images in Amazon ECR. CI never deploys: ArgoCD deploys from zen-gitops (develop branch to dev automatically, qa and prod through promotion PRs). |
+| zen-pharma-frontend | Source code for pharma-ui: a React single-page app, built and served by nginx (unprivileged, port 8080), which also proxies /api/ to api-gateway. CI: lint, unit tests, build, Docker image, scan, push to ECR, then update the pharma-ui image tag in zen-gitops. | Container image in Amazon ECR, deployed by ArgoCD from zen-gitops like the backend. |
 
 ## The 9 services
 
@@ -39,3 +41,4 @@
 - qc-service uses H2 in-memory: QC records lost on restart. Must move to Postgres (ZPP-4).
 - notification-service puts the message into email HTML without escaping: possible HTML injection in emails. Review in ZPP-4.
 - notification-service: SMS is not implemented, only logged.
+- POC frontend CI wrote every push to main straight into the prod values file (S8): no QA step, no manual gate. Our build uses the same promotion path as the backend (ZPP-6).
