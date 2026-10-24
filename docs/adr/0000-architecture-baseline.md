@@ -7,6 +7,10 @@
 
 ## Context
 
+Zen Pharmaceuticals needs one platform to manage its drug catalogue, inventory, suppliers, manufacturing, and quality control records. An earlier prototype showed that the design works, with nine services running on EKS, deployed through GitOps, and connected to one PostgreSQL database.
+
+An architecture review found 12 blockers, 19 security issues, and several differences between the documentation and the code. We are building the platform from scratch using enterprise practices.
+
 ## The 4 repositories
 
 | Repo | Owns | Deploys to |
