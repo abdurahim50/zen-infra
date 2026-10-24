@@ -1,6 +1,6 @@
 # ADR-000: Architecture baseline for Zen Pharma Platform
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-23
 - Deciders: Abdu (Platform Engineer), mentor review
 - Ticket: ZPP-15
