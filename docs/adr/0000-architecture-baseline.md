@@ -29,7 +29,17 @@
 | qc-service | Quality control testing of batches | Java 17, Spring Boot | 8086 | H2 in-memory (POC only; data lost on every restart) |
 | notification-service | Email notifications through SMTP (SMS only logged, not sent) | Node.js, Express | 3000 | none |
 | pharma-ui | React web app served by nginx; proxies /api/ to api-gateway | React, nginx (unprivileged) | 8080 | none |
+
 ## One request, browser to database
+
+1. When I log in, the React app in my browser sends my username and password to `/api/auth/login` over HTTPS.
+2. The request reaches the AWS NLB, which forwards it to ingress-nginx inside the EKS cluster.
+3. Ingress-nginx routes the request to pharma-ui. Its nginx recognizes `/api/` and forwards it to the internal api-gateway Service.
+4. The Service directs the request to an api-gateway pod, which routes `/api/auth/login` to auth-service.
+5. The gateway allows login without a JWT because the user needs to log in before receiving one.
+6. Auth-service checks the user's record in the PostgreSQL `auth` schema and verifies the password against the stored hash. RDS sits in a private subnet, and its security group only allows port 5432 from the EKS nodes. Its database credentials come from a Kubernetes Secret populated by ESO from AWS Secrets Manager; ESO reads Secrets Manager through an IAM role (IRSA), so no AWS keys exist in the cluster.
+7. If the credentials are correct, auth-service creates a signed JWT and sends it back through the same components to the browser.
+8. For later protected API requests, the browser includes the JWT in the Authorization header, and api-gateway validates it before forwarding the request.
 
 ## Decision
 
