@@ -43,12 +43,50 @@
 
 ## Decision
 
+We will use four repositories, nine services, EKS, RDS, ArgoCD, and Helm as our starting architecture, with these rules:
+
+- We will not use long-lived AWS access keys. CI will use GitHub OIDC, and team members will use IAM Identity Center. The account will have no IAM users with access keys.
+
+- Production changes will require a promotion pull request and a manual sync in ArgoCD. A commit alone will not deploy changes to production.
+
+- Every review finding, including B1–B12, S1–S19, and differences between the documentation and code, must be fixed or have its risk formally accepted before go-live. Each finding will be included in the acceptance criteria for its related epic.
+
+- qc-service will store its data in PostgreSQL so quality control records are preserved after restarts.
+
+- All incoming API requests will go through pharma-ui, and AWS resources will be restricted to us-east-1.
+
+- Development, QA, and production will share one AWS account to help keep spending within our $30 monthly budget.
+
 ## Consequences
+
+Benefits
+
+- CI will use temporary AWS credentials instead of a stored access key, reducing the risk of exposing a long-lived key.
+
+- Deployment changes will be tracked in Git, so we can see who changed what and revert to an earlier configuration when needed.
+
+- One shared Helm chart will let us define common security settings once and apply them to all nine services.
+
+- Fixing issues during development should take less time and cost less than fixing them after go-live.
+
+Tradeoffs and risks
+
+- Sharing one AWS account means a mistake in development could affect production. We accept this risk to control costs and will reconsider separate accounts if our budget allows.
+
+- All services will depend on one PostgreSQL database, so a database outage could affect the entire platform. Each service will have its own schema, but this will not protect it from a shared database outage.
+
+- A mistake in the shared Helm chart could affect all nine services, so chart changes will need careful review.
+
+- EKS and NAT gateways cost money while running. We will remove non-essential resources after each session to manage spending.
+
+- Following enterprise practices will require more setup, review, and testing, which will slow progress within each sprint.
 
 ## Questions
 
-- Docs drift: backend README lists supplier 8085, manufacturing 8084, notification 8086. Code says 8084, 8085, 3000. Code wins.
-- qc-service uses H2 in-memory: QC records lost on restart. Must move to Postgres (ZPP-4).
-- notification-service puts the message into email HTML without escaping: possible HTML injection in emails. Review in ZPP-4.
-- notification-service: SMS is not implemented, only logged.
-- POC frontend CI wrote every push to main straight into the prod values file (S8): no QA step, no manual gate. Our build uses the same promotion path as the backend (ZPP-6).
+- Service ports must have one source of truth and the docs must be generated or checked from the code. During review the documented ports for supplier-service, manufacturing-service and notification-service did not match the code (correct: 8084, 8085, 3000).
+- qc-service must store QC records in PostgreSQL. An in-memory database loses every record on restart, which is not acceptable for pharma quality records (ZPP-4).
+- notification-service must escape message text before putting it into email HTML, or send plain text only, to prevent HTML injection in emails (S19, ZPP-4).
+- notification-service: SMS is not implemented yet. Decide whether we need it or remove it from scope.
+- Frontend CI must use the same promotion path as the backend: dev automatically, then qa and prod through promotion PRs, never straight from main to prod (S8, ZPP-6).
+- The API must have one entry point (through pharma-ui), not a second public ingress straight to api-gateway (ZPP-7).
+- The JWT should not live in browser localStorage, where an XSS bug could steal it. Evaluate an HttpOnly cookie (ZPP-4).
