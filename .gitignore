@@ -1,0 +1,25 @@
+# Terraform working files
+.terraform/
+*.tfplan
+crash.log
+crash.*.log
+
+# State: lives in S3, never in Git (can contain secrets)
+*.tfstate
+*.tfstate.*
+
+# Variable files with real values; keep the examples
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Local override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# OS and editor
+.DS_Store
+.vscode/
+.idea/
