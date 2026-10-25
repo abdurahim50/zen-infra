@@ -1,11 +1,11 @@
 variable "aws_region" {
-  description = "aws region for all resources"
+  description = "AWS region for all resources"
   type        = string
   default     = "us-east-1"
 }
 
 variable "project" {
-  description = "project name use in names tags"
+  description = "Project name, used in resource names and tags"
   type        = string
   default     = "zen-pharma"
 }

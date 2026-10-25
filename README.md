@@ -8,7 +8,7 @@ Terraform for the Zen Pharma Platform AWS infrastructure (us-east-1).
 | --- | --- |
 | `bootstrap/` | Creates the Terraform state bucket (run once) |
 | `modules/` | Reusable modules (vpc, eks, rds, ...) |
-| `envs/dev`, (qa and prod added in ZPP-8) | One stack per environment, each with its own state |
+| `envs/dev` (qa and prod added in ZPP-8) | One stack per environment, each with its own state |
 | `docs/adr/` | Architecture decision records |
 | `docs/runbooks/` | Operational runbooks |
 
@@ -20,3 +20,10 @@ Terraform for the Zen Pharma Platform AWS infrastructure (us-east-1).
 - Commits: `type(scope): summary (ZPP-n)`
 
 ## Local setup
+
+```bash
+pre-commit install
+tflint --init
+cd envs/dev && cp terraform.tfvars.example terraform.tfvars
+terraform init -backend=false && terraform validate
+```
