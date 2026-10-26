@@ -1,3 +1,13 @@
+# -----------------------------------------------------------------------------
+# Bootstrap: Terraform remote state bucket
+#
+# Creates the S3 bucket that stores Terraform state for every other stack.
+# Run once per AWS account, before any other stack:
+#   terraform init && terraform plan -out=bootstrap.tfplan && terraform apply bootstrap.tfplan
+# Then add backend.tf and run: terraform init -migrate-state
+# Design: docs/adr/. Setup and teardown: see the repository README.
+# -----------------------------------------------------------------------------
+
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
@@ -28,6 +38,8 @@ resource "aws_s3_bucket_public_access_block" "state" {
   restrict_public_buckets = true
 }
 
+# Versioning keeps every previous state file, so a bad apply can be
+# rolled back by restoring an older version (see docs/runbooks/state-lock-recovery.md).
 resource "aws_s3_bucket_versioning" "state" {
   bucket = aws_s3_bucket.state.id
   versioning_configuration {
