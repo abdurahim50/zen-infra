@@ -1,1 +1,2 @@
 bucket = "zen-pharma-tfstate-<ACCOUNT_ID>-us-east-1"
+kms_key_id = "arn:aws:kms:us-east-1:<ACCOUNT_ID>:key/<KEY_ID>"
