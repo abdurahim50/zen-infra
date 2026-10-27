@@ -23,3 +23,6 @@ override.tf.json
 .DS_Store
 .vscode/
 .idea/
+
+# Backend settings with account-specific values
+backend.hcl

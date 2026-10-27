@@ -1,3 +1,13 @@
+# -----------------------------------------------------------------------------
+# Bootstrap: Terraform remote state bucket
+#
+# Creates the S3 bucket that stores Terraform state for every other stack.
+# Run once per AWS account, before any other stack:
+#   terraform init && terraform plan -out=bootstrap.tfplan && terraform apply bootstrap.tfplan
+# Then add backend.tf and run: terraform init -migrate-state
+# Design: docs/adr/. Setup and teardown: see the repository README.
+# -----------------------------------------------------------------------------
+
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
@@ -28,6 +38,8 @@ resource "aws_s3_bucket_public_access_block" "state" {
   restrict_public_buckets = true
 }
 
+# Versioning keeps every previous state file, so a bad apply can be
+# rolled back by restoring an older version (see docs/runbooks/state-lock-recovery.md).
 resource "aws_s3_bucket_versioning" "state" {
   bucket = aws_s3_bucket.state.id
   versioning_configuration {
@@ -35,15 +47,35 @@ resource "aws_s3_bucket_versioning" "state" {
   }
 }
 
+# Customer managed key for state encryption. Unlike the AWS-owned key,
+# its key policy controls who can decrypt state, and every decrypt is
+# logged in CloudTrail. Rotated yearly by AWS.
+resource "aws_kms_key" "state" {
+  description             = "Encrypts Terraform state in the zen-pharma state bucket"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_kms_alias" "state" {
+  name          = "alias/zen-pharma-tfstate"
+  target_key_id = aws_kms_key.state.key_id
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.state.arn
     }
     bucket_key_enabled = true
   }
 }
+
 
 resource "aws_s3_bucket_lifecycle_configuration" "state" {
   bucket = aws_s3_bucket.state.id
@@ -93,4 +125,8 @@ resource "aws_s3_bucket_policy" "state" {
 
 output "state_bucket_name" {
   value = aws_s3_bucket.state.bucket
+}
+
+output "state_kms_key_arn" {
+  value = aws_kms_key.state.arn
 }
