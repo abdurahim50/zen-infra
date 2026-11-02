@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (git-ignored) and fill in the real values.
+# Look them up with:
+# gh api repos/abdurahim50/zen-infra/actions/oidc/customization/sub
+# The output looks like: repo:abdurahim50@<OWNER_ID>/zen-infra@<REPO_ID>
+github_owner_id      = "<OWNER_ID>"
+github_repository_id = "<REPO_ID>"
