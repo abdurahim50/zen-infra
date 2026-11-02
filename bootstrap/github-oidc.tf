@@ -149,5 +149,3 @@ resource "aws_iam_role" "apply" {
   assume_role_policy   = data.aws_iam_policy_document.apply_trust.json
   max_session_duration = 3600
 }
-
-# Apply permissions: decided in the next step (ADR-002).
