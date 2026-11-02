@@ -56,6 +56,8 @@ Choose **C**. Everything lives in the `bootstrap` stack, which a human applies f
 | Pull request plans can read pipeline state | State must not contain secrets | Sprint 3: RDS-managed master password, write-only or ephemeral arguments; proof that state holds no passwords |
 | One person approves their own apply | Solo project | A team would enable "prevent self-review" with a second reviewer |
 | Dev and the target production share one account in this project | Budget | Production belongs in a separate account under AWS Organizations |
+| The AWS account ID appears in 2 historical commits and PRs #4 to #6 (made public Nov 2026 without a history rewrite) | An account ID is not a credential; a rewrite would break SHAs and still leave PR refs | None; every new commit follows POL-02 |
+| The dev apply job plans and applies after approval, so it can differ from the plan reviewed on the pull request if main changed in between | Dev only; the plan is printed in the apply log before it runs | Production: separate plan job, reviewed plan artifact stored privately |
 
 ## Sources
 
