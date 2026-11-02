@@ -26,3 +26,6 @@ override.tf.json
 
 # Backend settings with account-specific values
 backend.hcl
+
+# Lock files belong to root stacks only, not reusable modules
+modules/**/.terraform.lock.hcl
