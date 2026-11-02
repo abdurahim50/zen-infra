@@ -2,6 +2,7 @@
 # Dev environment. Network layout per ADR-000; NAT per ADR-001 (one shared
 # NAT gateway, created and destroyed with each working session).
 # -----------------------------------------------------------------------------
+data "aws_caller_identity" "current" {}
 
 module "vpc" {
   source = "../../modules/vpc"
@@ -14,5 +15,9 @@ module "vpc" {
   private_subnet_cidrs  = ["10.10.16.0/20", "10.10.32.0/20"]
   database_subnet_cidrs = ["10.10.48.0/24", "10.10.49.0/24"]
 
-  single_nat_gateway = true
+  # ... keep your existing lines below (single_nat_gateway etc.) unchanged ...
+
+  # The pipeline may only create IAM roles that carry this boundary
+  # (ADR-002), so the flow logs role must have it.
+  permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/zen-pharma-workload-boundary"
 }

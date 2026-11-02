@@ -47,3 +47,8 @@ variable "database_subnet_cidrs" {
   description = "One database subnet CIDR per AZ, same order as azs (RDS only; no internet route)"
   type        = list(string)
 }
+
+variable "permissions_boundary_arn" {
+  description = "Permissions boundary for IAM roles this module creates. Required: the pipeline can only create bounded roles."
+  type        = string
+}
