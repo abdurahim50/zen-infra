@@ -1,9 +1,10 @@
 # -----------------------------------------------------------------------------
-# Terraform plan and apply for envs/dev (ADR-002).
+# Terraform plan and apply for the pipeline stacks: envs/dev and shared
+# (ADR-002, ADR-003).
 #
-# Pull request: plan with the read-only zen-infra-plan role and post the
-# result on the pull request.
-# Merge to main: the apply job waits for approval in the "dev" GitHub
+# Pull request: plan each stack with the read-only zen-infra-plan role and
+# post one comment per stack on the pull request.
+# Merge to main: each apply job waits for approval in the "dev" GitHub
 # environment, then plans and applies that exact saved plan with
 # zen-infra-apply. Both roles are assumed through OIDC; no AWS keys exist.
 #
@@ -14,167 +15,195 @@
 # the AWS account ID is masked in logs and replaced in anything we post.
 # Actions are pinned to full commit SHAs; the comment is the release.
 # -----------------------------------------------------------------------------
-    name: terraform-deploy
+  name: terraform-deploy
 
-    on:
-      pull_request:
-        branches: [main]
-        paths:
-          - "envs/dev/**"
-          - "modules/**"
-          - ".github/workflows/terraform-deploy.yml"
-      push:
-        branches: [main]
-        paths:
-          - "envs/dev/**"
-          - "modules/**"
-          - ".github/workflows/terraform-deploy.yml"
+  on:
+    pull_request:
+      branches: [main]
+      paths:
+        - "envs/dev/**"
+        - "shared/**"
+        - "modules/**"
+        - ".github/workflows/terraform-deploy.yml"
+    push:
+      branches: [main]
+      paths:
+        - "envs/dev/**"
+        - "shared/**"
+        - "modules/**"
+        - ".github/workflows/terraform-deploy.yml"
 
-    permissions: {}
+  permissions: {}
 
-    # One run at a time for this stack; a queued apply waits instead of being
-    # cancelled half way. The S3 state lock is the backstop.
-    concurrency:
-      group: terraform-envs-dev
-      cancel-in-progress: false
+  env:
+    TF_VERSION: 1.16.0
+    AWS_REGION: us-east-1
+    TF_IN_AUTOMATION: "true"
+    TF_INPUT: "false"
+    # Non-secret inputs (terraform.tfvars is git-ignored). A stack that does
+    # not declare a variable ignores its TF_VAR_ value (shared has no
+    # environment variable).
+    TF_VAR_environment: dev
+    TF_VAR_owner: platform-team
+    TF_VAR_cost_center: CC-0000
 
-    env:
-      TF_VERSION: 1.16.0
-      AWS_REGION: us-east-1
-      STACK: envs/dev
-      TF_IN_AUTOMATION: "true"
-      TF_INPUT: "false"
-      # Non-secret inputs for envs/dev (terraform.tfvars is git-ignored).
-      TF_VAR_environment: dev
-      TF_VAR_owner: platform-team
-      TF_VAR_cost_center: CC-0000
+  jobs:
+    plan:
+      name: plan (${{ matrix.stack }})
+      # Fork pull requests get no secrets or OIDC token, and Dependabot has its
+      # own secret store, so neither can plan.
+      if: >-
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.actor != 'dependabot[bot]'
+      runs-on: ubuntu-24.04
+      strategy:
+        fail-fast: false
+        matrix:
+          stack: [shared, envs/dev]
+      # One run at a time per stack; a queued run waits instead of being
+      # cancelled half way. The S3 state lock is the backstop.
+      concurrency:
+        group: terraform-${{ matrix.stack }}
+        cancel-in-progress: false
+      permissions:
+        contents: read
+        id-token: write
+        pull-requests: write
+      env:
+        STACK: ${{ matrix.stack }}
+      steps:
+        - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          with:
+            persist-credentials: false
 
-    jobs:
-      plan:
-        name: plan (envs/dev)
-        # Fork pull requests get no secrets or OIDC token, and Dependabot has its
-        # own secret store, so neither can plan.
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          github.actor != 'dependabot[bot]'
-        runs-on: ubuntu-24.04
-        permissions:
-          contents: read
-          id-token: write
-          pull-requests: write
-        steps:
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            with:
-              persist-credentials: false
+        - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+          with:
+            role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+            role-session-name: zen-infra-plan-${{ github.run_id }}
+            aws-region: ${{ env.AWS_REGION }}
+            mask-aws-account-id: true
 
-          - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-            with:
-              role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
-              role-session-name: zen-infra-plan-${{ github.run_id }}
-              aws-region: ${{ env.AWS_REGION }}
-              mask-aws-account-id: true
+        - name: Mask the AWS account ID
+          run: |
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            echo "::add-mask::${ACCOUNT_ID}"
+            echo "ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
 
-          - name: Mask the AWS account ID
-            run: |
-              ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-              echo "::add-mask::${ACCOUNT_ID}"
-              echo "ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
+        - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+          with:
+            terraform_version: ${{ env.TF_VERSION }}
+            terraform_wrapper: false
 
-          - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-            with:
-              terraform_version: ${{ env.TF_VERSION }}
-              terraform_wrapper: false
+        - name: terraform init
+          env:
+            TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+            TF_STATE_KMS_KEY_ARN: ${{ secrets.TF_STATE_KMS_KEY_ARN }}
+          run: |
+            terraform -chdir="$STACK" init \
+              -backend-config="bucket=${TF_STATE_BUCKET}" \
+              -backend-config="kms_key_id=${TF_STATE_KMS_KEY_ARN}"
 
-          - name: terraform init
-            env:
-              TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-              TF_STATE_KMS_KEY_ARN: ${{ secrets.TF_STATE_KMS_KEY_ARN }}
-            run: |
-              terraform -chdir="$STACK" init \
-                -backend-config="bucket=${TF_STATE_BUCKET}" \
-                -backend-config="kms_key_id=${TF_STATE_KMS_KEY_ARN}"
+        - name: terraform plan
+          run: |
+            set -o pipefail
+            terraform -chdir="$STACK" plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
 
-          - name: terraform plan
-            run: |
-              set -o pipefail
-              terraform -chdir="$STACK" plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
+        # One comment per stack, updated on every push. A hidden marker finds
+        # this stack's comment, so the two stacks never overwrite each other.
+        - name: Post the plan on the pull request
+          env:
+            GH_TOKEN: ${{ github.token }}
+            PR: ${{ github.event.pull_request.number }}
+          run: |
+            MARKER="<!-- terraform-plan:${STACK} -->"
+            {
+              echo "${MARKER}"
+              echo "### Terraform plan: ${STACK}"
+              echo
+              grep -E "^(Plan:|No changes)" plan.txt || echo "No plan summary line found; see the full plan."
+              echo
+              echo "<details><summary>Full plan</summary>"
+              echo
+              echo '```'
+              sed "s/${ACCOUNT_ID}/<ACCOUNT_ID>/g" plan.txt | tail -c 60000
+              echo '```'
+              echo "</details>"
+              echo
+              echo "_Run ${{ github.run_id }}, role zen-infra-plan (read-only)._"
+            } > comment.md
+            COMMENT_ID=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+              --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" | tail -n 1)
+            if [ -n "${COMMENT_ID}" ]; then
+              gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -F body=@comment.md > /dev/null
+            else
+              gh pr comment "$PR" --body-file comment.md
+            fi
 
-          - name: Post the plan on the pull request
-            env:
-              GH_TOKEN: ${{ github.token }}
-              PR: ${{ github.event.pull_request.number }}
-            run: |
-              {
-                echo "### Terraform plan: envs/dev"
-                echo
-                grep -E "^(Plan:|No changes)" plan.txt || echo "No plan summary line found; see the full plan."
-                echo
-                echo "<details><summary>Full plan</summary>"
-                echo
-                echo '```'
-                sed "s/${ACCOUNT_ID}/<ACCOUNT_ID>/g" plan.txt | tail -c 60000
-                echo '```'
-                echo "</details>"
-                echo
-                echo "_Run ${{ github.run_id }}, role zen-infra-plan (read-only)._"
-              } > comment.md
-              gh pr comment "$PR" --body-file comment.md --edit-last --create-if-none
+    apply:
+      name: apply (${{ matrix.stack }})
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      runs-on: ubuntu-24.04
+      strategy:
+        fail-fast: false
+        matrix:
+          stack: [shared, envs/dev]
+      concurrency:
+        group: terraform-${{ matrix.stack }}
+        cancel-in-progress: false
+      # The job does not start until a required reviewer approves the "dev"
+      # environment. Only an approved job gets the environment:dev OIDC subject
+      # that zen-infra-apply trusts, and only it can read AWS_APPLY_ROLE_ARN.
+      # Both stacks use this gate until qa and prod get their own (ZPP-8).
+      environment: dev
+      permissions:
+        contents: read
+        id-token: write
+      env:
+        STACK: ${{ matrix.stack }}
+      steps:
+        - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          with:
+            persist-credentials: false
 
-      apply:
-        name: apply (envs/dev)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        runs-on: ubuntu-24.04
-        # The job does not start until a required reviewer approves the "dev"
-        # environment. Only an approved job gets the environment:dev OIDC subject
-        # that zen-infra-apply trusts, and only it can read AWS_APPLY_ROLE_ARN.
-        environment: dev
-        permissions:
-          contents: read
-          id-token: write
-        steps:
-          - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            with:
-              persist-credentials: false
+        - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+          with:
+            role-to-assume: ${{ secrets.AWS_APPLY_ROLE_ARN }}
+            role-session-name: zen-infra-apply-${{ github.run_id }}
+            aws-region: ${{ env.AWS_REGION }}
+            mask-aws-account-id: true
 
-          - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-            with:
-              role-to-assume: ${{ secrets.AWS_APPLY_ROLE_ARN }}
-              role-session-name: zen-infra-apply-${{ github.run_id }}
-              aws-region: ${{ env.AWS_REGION }}
-              mask-aws-account-id: true
+        - name: Mask the AWS account ID
+          run: |
+            ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+            echo "::add-mask::${ACCOUNT_ID}"
+            echo "ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
 
-          - name: Mask the AWS account ID
-            run: |
-              ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-              echo "::add-mask::${ACCOUNT_ID}"
-              echo "ACCOUNT_ID=${ACCOUNT_ID}" >> "$GITHUB_ENV"
+        - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+          with:
+            terraform_version: ${{ env.TF_VERSION }}
+            terraform_wrapper: false
 
-          - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
-            with:
-              terraform_version: ${{ env.TF_VERSION }}
-              terraform_wrapper: false
+        - name: terraform init
+          env:
+            TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+            TF_STATE_KMS_KEY_ARN: ${{ secrets.TF_STATE_KMS_KEY_ARN }}
+          run: |
+            terraform -chdir="$STACK" init \
+              -backend-config="bucket=${TF_STATE_BUCKET}" \
+              -backend-config="kms_key_id=${TF_STATE_KMS_KEY_ARN}"
 
-          - name: terraform init
-            env:
-              TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-              TF_STATE_KMS_KEY_ARN: ${{ secrets.TF_STATE_KMS_KEY_ARN }}
-            run: |
-              terraform -chdir="$STACK" init \
-                -backend-config="bucket=${TF_STATE_BUCKET}" \
-                -backend-config="kms_key_id=${TF_STATE_KMS_KEY_ARN}"
+        # Plan and apply in the same job: the apply runs exactly the plan
+        # shown in this log, and the saved plan never leaves the runner (an
+        # artifact would be downloadable from this public repository).
+        - name: terraform plan
+          run: |
+            set -o pipefail
+            terraform -chdir="$STACK" plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
+            {
+              echo "### Applying to ${STACK}"
+              grep -E "^(Plan:|No changes)" plan.txt || true
+            } | sed "s/${ACCOUNT_ID}/<ACCOUNT_ID>/g" >> "$GITHUB_STEP_SUMMARY"
 
-          # Plan and apply in the same job: the apply runs exactly the plan
-          # shown in this log, and the saved plan never leaves the runner (an
-          # artifact would be downloadable from this public repository).
-          - name: terraform plan
-            run: |
-              set -o pipefail
-              terraform -chdir="$STACK" plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
-              {
-                echo "### Applying to envs/dev"
-                grep -E "^(Plan:|No changes)" plan.txt || true
-              } | sed "s/${ACCOUNT_ID}/<ACCOUNT_ID>/g" >> "$GITHUB_STEP_SUMMARY"
-
-          - name: terraform apply
-            run: terraform -chdir="$STACK" apply -no-color -lock-timeout=5m tfplan
+        - name: terraform apply
+          run: terraform -chdir="$STACK" apply -no-color -lock-timeout=5m tfplan
