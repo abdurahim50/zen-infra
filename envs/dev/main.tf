@@ -1,8 +1,14 @@
 # -----------------------------------------------------------------------------
 # Dev environment. Network layout per ADR-000; NAT per ADR-001 (one shared
-# NAT gateway, created and destroyed with each working session).
+# NAT gateway); EKS per ADR-004. Everything here is created and destroyed
+# with each working session.
 # -----------------------------------------------------------------------------
 data "aws_caller_identity" "current" {}
+
+locals {
+  # The pipeline may only create IAM roles that carry this boundary (ADR-002).
+  permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/zen-pharma-workload-boundary"
+}
 
 module "vpc" {
   source = "../../modules/vpc"
@@ -17,7 +23,35 @@ module "vpc" {
 
   single_nat_gateway = true
 
-  # The pipeline may only create IAM roles that carry this boundary
-  # (ADR-002), so the flow logs role must have it.
-  permissions_boundary_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/zen-pharma-workload-boundary"
+  permissions_boundary_arn = local.permissions_boundary_arn
+}
+
+# The SSO admin role is looked up, not written down: its ARN contains the
+# account ID and a generated suffix, neither of which belongs in this repo.
+data "aws_iam_roles" "sso_admin" {
+  name_regex  = "^AWSReservedSSO_AdministratorAccess_"
+  path_prefix = "/aws-reserved/sso.amazonaws.com/"
+}
+
+module "eks" {
+  source = "../../modules/eks"
+
+  name               = "${var.project}-${var.environment}"
+  kubernetes_version = "1.37"
+  private_subnet_ids = module.vpc.private_subnet_ids
+
+  public_access_cidrs = var.eks_public_access_cidrs
+  # one() fails the plan if the lookup finds no role or more than one.
+  admin_role_arn = one(data.aws_iam_roles.sso_admin.arns)
+
+  # Default versions for Kubernetes 1.37, looked up on 2026-11-04 with
+  # aws eks describe-addon-versions. Upgrade them deliberately, by PR.
+  addon_versions = {
+    "vpc-cni"                = "v1.22.4-eksbuild.10"
+    "kube-proxy"             = "v1.37.0-eksbuild.32"
+    "coredns"                = "v1.14.7-eksbuild.22"
+    "eks-pod-identity-agent" = "v1.4.1-eksbuild.3"
+  }
+
+  permissions_boundary_arn = local.permissions_boundary_arn
 }
