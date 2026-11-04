@@ -5,7 +5,11 @@
 # zen-pharma-* roles that carry the workload boundary. Explicit denies
 # protect the CI identity, the boundary and Terraform state, so the pipeline
 # cannot raise its own access or damage what it depends on.
-# Design: docs/adr/0002-github-oidc.md
+#
+# EKS guardrails (ADR-004): the pipeline creates clusters but can never
+# become a Kubernetes admin, and clusters must use access entries only.
+#
+# Design: docs/adr/0002-github-oidc.md, docs/adr/0004-eks-design.md
 # -----------------------------------------------------------------------------
 
 locals {
@@ -13,6 +17,13 @@ locals {
   region              = data.aws_region.current.region
   workload_role_arns  = "arn:aws:iam::${local.account_id}:role/zen-pharma-*"
   workload_policy_arn = "arn:aws:iam::${local.account_id}:policy/zen-pharma-*"
+
+  # CI identities that must never appear in an EKS access entry.
+  ci_role_arns = [
+    aws_iam_role.plan.arn,
+    aws_iam_role.apply.arn,
+    aws_iam_role.image_push.arn,
+  ]
 }
 
 data "aws_iam_policy_document" "apply" {
@@ -145,6 +156,7 @@ data "aws_iam_policy_document" "apply" {
     resources = [local.workload_policy_arn]
   }
 
+  # pods.eks.amazonaws.com: EKS Pod Identity associations (ADR-004).
   statement {
     sid       = "PassWorkloadRoles"
     effect    = "Allow"
@@ -157,6 +169,7 @@ data "aws_iam_policy_document" "apply" {
         "vpc-flow-logs.amazonaws.com",
         "eks.amazonaws.com",
         "ec2.amazonaws.com",
+        "pods.eks.amazonaws.com",
         "rds.amazonaws.com",
         "monitoring.rds.amazonaws.com",
       ]
@@ -179,20 +192,6 @@ data "aws_iam_policy_document" "apply" {
         "autoscaling.amazonaws.com",
       ]
     }
-  }
-
-  # EKS needs its own OIDC provider for IRSA (Sprint 3).
-  statement {
-    sid    = "EksOidcProviders"
-    effect = "Allow"
-    actions = [
-      "iam:CreateOpenIDConnectProvider",
-      "iam:DeleteOpenIDConnectProvider",
-      "iam:TagOpenIDConnectProvider",
-      "iam:UntagOpenIDConnectProvider",
-      "iam:UpdateOpenIDConnectProviderThumbprint",
-    ]
-    resources = ["arn:aws:iam::${local.account_id}:oidc-provider/oidc.eks.${local.region}.amazonaws.com/*"]
   }
 
   # ---------- Deny: these win over every allow above ----------
@@ -229,6 +228,52 @@ data "aws_iam_policy_document" "apply" {
       "iam:AddUserToGroup",
     ]
     resources = ["*"]
+  }
+
+  # ADR-004: no identity gets cluster admin just for creating the cluster.
+  # IfExists: a request that leaves the setting out (AWS default is true)
+  # is denied too, so Terraform must say false explicitly.
+  statement {
+    sid       = "EksNoCreatorAdmin"
+    effect    = "Deny"
+    actions   = ["eks:CreateCluster"]
+    resources = ["*"]
+    condition {
+      test     = "BoolIfExists"
+      variable = "eks:bootstrapClusterCreatorAdminPermissions"
+      values   = ["true"]
+    }
+  }
+
+  # ADR-004: access entries only, never the aws-auth ConfigMap.
+  statement {
+    sid       = "EksAccessEntriesOnly"
+    effect    = "Deny"
+    actions   = ["eks:CreateCluster", "eks:UpdateClusterConfig"]
+    resources = ["*"]
+    condition {
+      test     = "StringNotEqualsIfExists"
+      variable = "eks:authenticationMode"
+      values   = ["API"]
+    }
+  }
+
+  # ADR-004: the CI roles can never be given Kubernetes access, so the
+  # pipeline cannot grant itself cluster admin through an access entry.
+  statement {
+    sid    = "EksNoAccessForCiRoles"
+    effect = "Deny"
+    actions = [
+      "eks:CreateAccessEntry",
+      "eks:UpdateAccessEntry",
+      "eks:AssociateAccessPolicy",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "ArnLike"
+      variable = "eks:principalArn"
+      values   = local.ci_role_arns
+    }
   }
 
   statement {
