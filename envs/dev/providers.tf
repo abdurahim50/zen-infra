@@ -5,7 +5,7 @@ provider "aws" {
     tags = {
       Project     = var.project
       Environment = var.environment
-      stack       = "dev"
+      Stack       = "dev"
       Owner       = var.owner
       CostCenter  = var.cost_center
       ManagedBy   = "terraform"
