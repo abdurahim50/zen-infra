@@ -72,6 +72,24 @@
             with:
               persist-credentials: false
 
+          # ZPP-30: Trivy's installer host get.trivy.dev is down
+          # (aquasecurity/setup-trivy#42). Install the pinned release from GitHub
+          # and verify its SHA-256, the same way actions are pinned to commit SHAs.
+          - name: Install Trivy (pinned and verified)
+            env:
+              TRIVY_VERSION: 0.70.0
+              ThRIVY_SHA256: 8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9
+            run: |
+              set -euo pipefail
+              TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+              curl -sSfL -o "${RUNNER_TEMP}/${TARBALL}" \
+              "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TARBALL}"
+              echo "${TRIVY_SHA256}  ${RUNNER_TEMP}/${TARBALL}" | sha256sum -c -
+              mkdir -p "${RUNNER_TEMP}/trivy-bin"
+              tar -xzf "${RUNNER_TEMP}/${TARBALL}" -C "${RUNNER_TEMP}/trivy-bin" trivy
+              echo "${RUNNER_TEMP}/trivy-bin" >> "$GITHUB_PATH"
+              "${RUNNER_TEMP}/trivy-bin/trivy" --version
+
           - name: trivy config scan
             uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
             with:
@@ -79,3 +97,4 @@
               scan-ref: .
               severity: HIGH,CRITICAL
               exit-code: "1"
+              skip-setup-trivy: "true"
