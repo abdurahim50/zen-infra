@@ -4,3 +4,5 @@
 # The output looks like: repo:abdurahim50@<OWNER_ID>/<repo>@<REPO_ID>
 github_owner_id               = "<OWNER_ID>"
 github_repository_id          = "<ZEN_INFRA_REPO_ID>"
+github_backend_repository_id  = "<ZEN_PHARMA_BACKEND_REPO_ID>"
+github_frontend_repository_id = "<ZEN_PHARMA_FRONTEND_REPO_ID>"
