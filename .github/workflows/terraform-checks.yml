@@ -78,7 +78,7 @@
           - name: Install Trivy (pinned and verified)
             env:
               TRIVY_VERSION: 0.70.0
-              ThRIVY_SHA256: 8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9
+              TRIVY_SHA256: 8b4376d5d6befe5c24d503f10ff136d9e0c49f9127a4279fd110b727929a5aa9
             run: |
               set -euo pipefail
               TARBALL="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
