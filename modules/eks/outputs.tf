@@ -30,3 +30,13 @@ output "secrets_kms_key_arn" {
   description = "KMS key that encrypts Kubernetes secrets"
   value       = aws_kms_key.eks.arn
 }
+
+output "node_role_arn" {
+  description = "IAM role of the managed nodes"
+  value       = aws_iam_role.node.arn
+}
+
+output "node_group_name" {
+  description = "Managed node group name"
+  value       = aws_eks_node_group.default.node_group_name
+}
