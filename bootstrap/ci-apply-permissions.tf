@@ -204,6 +204,7 @@ data "aws_iam_policy_document" "apply" {
     resources = [
       aws_iam_role.plan.arn,
       aws_iam_role.apply.arn,
+      aws_iam_role.image_push.arn,
       aws_iam_openid_connect_provider.github.arn,
       aws_iam_policy.workload_boundary.arn,
     ]

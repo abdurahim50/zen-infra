@@ -15,3 +15,8 @@ output "workload_boundary_arn" {
   description = "Permissions boundary every pipeline-created role must carry"
   value       = aws_iam_policy.workload_boundary.arn
 }
+
+output "image_push_role_arn" {
+  description = "Role the app repositories assume to push images (store as a secret in those repos)"
+  value       = aws_iam_role.image_push.arn
+}

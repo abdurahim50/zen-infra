@@ -20,3 +20,23 @@ variable "github_repository_id" {
     error_message = "github_repository_id must be the numeric repository ID."
   }
 }
+
+variable "github_backend_repository_id" {
+  description = "Immutable numeric ID of zen-pharma-backend, used in the OIDC subject. Kept out of git."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_backend_repository_id))
+    error_message = "github_backend_repository_id must be the numeric repository ID."
+  }
+}
+
+variable "github_frontend_repository_id" {
+  description = "Immutable numeric ID of zen-pharma-frontend, used in the OIDC subject. Kept out of git."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.github_frontend_repository_id))
+    error_message = "github_frontend_repository_id must be the numeric repository ID."
+  }
+}
