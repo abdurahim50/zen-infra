@@ -29,3 +29,9 @@ variable "cost_center" {
   description = "Cost center for billing reports"
   type        = string
 }
+
+variable "eks_public_access_cidrs" {
+  description = "CIDRs allowed to reach the EKS public API endpoint, e.g. [\"203.0.113.10/32\"]. Set from the EKS_PUBLIC_ACCESS_CIDRS secret in CI, or terraform.tfvars locally. Never committed."
+  type        = list(string)
+  sensitive   = true
+}

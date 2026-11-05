@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # Terraform plan and apply for the pipeline stacks: envs/dev and shared
-# (ADR-002, ADR-003).
+# (ADR-002, ADR-003). envs/dev includes the EKS cluster (ADR-004).
 #
 # Pull request: plan each stack with the read-only zen-infra-plan role and
 # post one comment per stack on the pull request.
@@ -105,6 +105,10 @@
               -backend-config="kms_key_id=${TF_STATE_KMS_KEY_ARN}"
 
         - name: terraform plan
+          env:
+            # The engineer's /32 for the EKS public endpoint (ADR-004). A
+            # sensitive Terraform variable, so the plan prints (sensitive value).
+            TF_VAR_eks_public_access_cidrs: ${{ secrets.EKS_PUBLIC_ACCESS_CIDRS }}
           run: |
             set -o pipefail
             terraform -chdir="$STACK" plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
@@ -197,6 +201,8 @@
         # shown in this log, and the saved plan never leaves the runner (an
         # artifact would be downloadable from this public repository).
         - name: terraform plan
+          env:
+            TF_VAR_eks_public_access_cidrs: ${{ secrets.EKS_PUBLIC_ACCESS_CIDRS }}
           run: |
             set -o pipefail
             terraform -chdir="$STACK" plan -no-color -lock-timeout=5m -out=tfplan | tee plan.txt
