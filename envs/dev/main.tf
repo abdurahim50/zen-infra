@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Dev environment. Network layout per ADR-000; NAT per ADR-001 (one shared
-# NAT gateway); EKS per ADR-004. Everything here is created and destroyed
-# with each working session.
+# NAT gateway); EKS per ADR-004; RDS per ZPP-36. Everything here is created
+# and destroyed with each working session.
 # -----------------------------------------------------------------------------
 data "aws_caller_identity" "current" {}
 
@@ -54,4 +54,22 @@ module "eks" {
   }
 
   permissions_boundary_arn = local.permissions_boundary_arn
+}
+
+module "rds" {
+  source = "../../modules/rds"
+
+  name                = "${var.project}-${var.environment}"
+  engine_version      = "18.6"
+  vpc_id              = module.vpc.vpc_id
+  database_subnet_ids = module.vpc.database_subnet_ids
+
+  # Only pods and nodes in the EKS cluster can reach PostgreSQL.
+  allowed_security_group_id = module.eks.cluster_security_group_id
+
+  # Dev only: the stack is destroyed after each session, so no deletion
+  # protection and no final snapshot. Backups stay on (1 day) to prove they work.
+  deletion_protection   = false
+  skip_final_snapshot   = true
+  backup_retention_days = 1
 }
