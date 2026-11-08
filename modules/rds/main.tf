@@ -54,7 +54,7 @@ resource "aws_vpc_security_group_ingress_rule" "from_eks" {
 # ---------- Parameters: TLS required, connections logged ----------
 
 resource "aws_db_parameter_group" "this" {
-  name        = "${var.name}-postgres${split(".", var.engine_version)[0]}"
+  name_prefix = "${var.name}-postgres${split(".", var.engine_version)[0]}-"
   family      = "postgres${split(".", var.engine_version)[0]}"
   description = "${var.name}: TLS required, connections logged"
 
