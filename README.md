@@ -1,5 +1,7 @@
 > Part of **[Project Lotus](https://github.com/abdurahim50/project-lotus)**: zen-infra · zen-gitops · zen-pharma-backend · zen-pharma-frontend
 
+> Part of **[Project Lotus](https://github.com/abdurahim50/project-lotus)**, the Zen Pharma DevSecOps platform.
+
 # zen-infra
 
 Terraform for the Zen Pharma Platform AWS infrastructure (us-east-1).
