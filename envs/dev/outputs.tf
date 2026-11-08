@@ -25,3 +25,13 @@ output "eks_cluster_security_group_id" {
   description = "Security group of the dev cluster and its nodes (RDS ingress source, ZPP-36)"
   value       = module.eks.cluster_security_group_id
 }
+
+output "rds_endpoint" {
+  description = "Dev PostgreSQL host name (resolves inside the VPC only)"
+  value       = module.rds.endpoint
+}
+
+output "rds_master_user_secret_arn" {
+  description = "Secrets Manager secret that RDS created for the master password"
+  value       = module.rds.master_user_secret_arn
+}
