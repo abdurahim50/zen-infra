@@ -35,3 +35,13 @@ output "rds_master_user_secret_arn" {
   description = "Secrets Manager secret that RDS created for the master password"
   value       = module.rds.master_user_secret_arn
 }
+
+output "rds_resource_id" {
+  description = "RDS instance resource ID, used in rds-db:connect ARNs"
+  value       = module.rds.resource_id
+}
+
+output "inventory_pod_role_name" {
+  description = "Pod Identity role for the inventory service"
+  value       = module.pod_identity_inventory.role_name
+}
