@@ -3,6 +3,8 @@
 Use this to prove, in one paid session, that a pod reaches AWS and PostgreSQL
 without any stored key or password, and that nothing else can. It applies to
 the dev stack (`envs/dev`) after the `modules/pod-identity` change is merged.
+It was first run for ZPP-37 on 2026-11-24 (results in the post-merge
+verification on PR #24); later sessions reuse it.
 
 Design decisions behind every step are in ADR-005 (IAM database
 authentication) and the ZPP-37 decision record. Pass and fail criteria below
@@ -17,7 +19,7 @@ were set before the test and must not be changed during it.
 | N1 | A pod using any other service account gets no AWS credentials | The token step fails with no credentials found |
 | N2 | The inventory pod cannot log in as the master user `pharma_admin` | Login refused |
 | N3 | The inventory pod cannot log in as another IAM-enabled user `svc_other` | Login refused |
-| L1 | db.t4g.micro has memory headroom for IAM authentication under the expected pool | 40 concurrent `svc_inventory` sessions held 10 minutes; all 40 succeed; minimum FreeableMemory during the hold at or above 256 MiB; zero failed `svc_inventory` logins |
+| L1 | The dev instance class has memory headroom for IAM authentication under the expected pool | 40 concurrent `svc_inventory` sessions held 10 minutes; all 40 succeed; zero failed `svc_inventory` logins; minimum FreeableMemory during the hold at or above the threshold written in the ticket after the baseline and before the load (see step 6) |
 | C1 | Nothing is left running after the session | Destroy completes and every leftover check is empty |
 
 N3 matters more than N2: `svc_other` has the `rds_iam` role, so the only thing
@@ -73,6 +75,34 @@ Do these on the laptop; none of them costs money.
 
 6. **Budget:** check the `zpp-monthly` budget has room for about 3 hours of EKS
    and RDS (ADR-004 and ADR-005 cost tables).
+7. **kubectl version:** the client must be within one minor version of the
+   cluster (`kubernetes_version` in `envs/dev`). Compare `kubectl version --client`;
+   if it is older, install the matching minor from the official release with its
+   checksum before the session:
+
+   ```bash
+   V=$(curl -fsSL https://dl.k8s.io/release/stable-1.37.txt)   # cluster minor
+   curl -fsSLO "https://dl.k8s.io/release/$V/bin/linux/amd64/kubectl"
+   curl -fsSLO "https://dl.k8s.io/release/$V/bin/linux/amd64/kubectl.sha256"
+   echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check    # must print OK
+   sudo install -m 0755 kubectl "$(command -v kubectl)"
+   ```
+
+8. **PR up to date and plan re-read (morning of the session):** branch
+   protection only merges a PR that contains the latest `main`. Check it, and if
+   it is behind, rebase it (no unsigned merge commit for the DCO check), wait
+   for the checks and read the new plan:
+
+   ```bash
+   gh pr view <n> --json mergeStateStatus,mergeable --jq '"\(.mergeStateStatus) \(.mergeable)"'   # CLEAN MERGEABLE
+   gh pr update-branch <n> --rebase && gh pr checks <n> --watch
+   gh pr view <n> --json comments --jq '.comments[-1].body' | grep -m1 '^Plan:'
+   ```
+
+   If there is no PR to merge (the change is already on `main` and its
+   deployment was rejected at the gate), re-run that `terraform-deploy` run
+   instead (`gh run rerun <run id>`) and approve it in step 1. Re-runs are only
+   possible for 30 days after the original run.
 
 ## Session timeline (about 2 hours)
 
@@ -95,13 +125,17 @@ the whole terminal: the admin step must never be captured.
 
 ```bash
 cd ~/code/DevSecOps-Project/zen-infra
-gh pr checks 24 && gh pr merge 24 --squash --delete-branch
+gh pr checks <n> && gh pr merge <n> --squash --delete-branch
 git switch main && git pull --ff-only
 ```
 
+If the merge call fails with an API error (for example HTTP 503), check the
+state before retrying: `gh pr view <n> --json state`. Retry only if it is still
+`OPEN`. Never use `--admin`: it bypasses branch protection.
+
 Approve the `dev` deployment in GitHub Actions when the plan shows
 **58 to add, 0 to change, 0 to destroy**. Any other number: stop and read the
-plan before approving.
+plan before approving. The hard stop (2 h 30 min) counts from the merge.
 
 ## 2. Connect and check the association
 
@@ -252,15 +286,15 @@ Expected in `04-positive.txt`:
 # N1: other service account, no Pod Identity association
 probe n1-other-sa other svc_inventory login
 sleep 60; kubectl -n inventory get pod n1-other-sa | tee ~/zpp-proof/05-n1.txt
-kubectl -n inventory logs n1-other-sa -c token | tee -a ~/zpp-proof/05-n1.txt
+kubectl -n inventory logs n1-other-sa -c token 2>&1 | tee -a ~/zpp-proof/05-n1.txt
 
 # N2: inventory role, master user
 probe n2-master inventory pharma_admin login
-sleep 60; kubectl -n inventory logs n2-master -c psql | tee ~/zpp-proof/05-n2.txt
+sleep 60; kubectl -n inventory logs n2-master -c psql 2>&1 | tee ~/zpp-proof/05-n2.txt
 
 # N3: inventory role, another IAM-enabled user
 probe n3-other-user inventory svc_other login
-sleep 60; kubectl -n inventory logs n3-other-user -c psql | tee ~/zpp-proof/05-n3.txt
+sleep 60; kubectl -n inventory logs n3-other-user -c psql 2>&1 | tee ~/zpp-proof/05-n3.txt
 ```
 
 Expected:
@@ -274,12 +308,17 @@ Expected:
 
 ## 6. Memory headroom (L1)
 
-Record the start of the baseline, wait 5 minutes with no load, then start the
-40 sessions:
+Thresholds come from a measured baseline (Sprint 4 retro action E3). Record
+the start of the baseline and wait 5 minutes with no load. Read the baseline,
+then write the pass threshold in the ticket **before** starting the load, with
+its source (the baseline minimum, and the 300 to 1,000 MiB AWS gives for IAM
+database authentication in ADR-005). The 256 MiB used for db.t4g.micro in
+ZPP-37 failed against a baseline of about 102 MiB, which led to db.t4g.small.
 
 ```bash
 BASE_START=$(date -u +%Y-%m-%dT%H:%M:%SZ); sleep 300
 LOAD_START=$(date -u +%Y-%m-%dT%H:%M:%SZ); LOAD_START_MS=$(($(date +%s)*1000))
+# (mem is defined below; run it now for the baseline, write the threshold in the ticket, then continue)
 probe l1-load inventory svc_inventory load
 sleep 120
 admin_sql "SELECT count(*) FROM pg_stat_activity WHERE usename = 'svc_inventory';" \
@@ -306,8 +345,8 @@ aws logs filter-log-events --log-group-name "/aws/rds/instance/$DB_ID/postgresql
 ```
 
 Pass: `06-active-sessions.txt` shows 40; `06-load-result.txt` shows `ok=40 failed=0`;
-the minimum in `06-mem-load.txt` is at or above **268435456 bytes (256 MiB)**;
-`06-failed-logins.txt` has no line for `svc_inventory`.
+the minimum in `06-mem-load.txt` is at or above the threshold written in the
+ticket before the load; `06-failed-logins.txt` has no line for `svc_inventory`.
 
 Record the baseline minimum next to the load minimum. The difference is the
 cost of 40 sessions. It does not isolate IAM authentication's own overhead,
@@ -329,8 +368,11 @@ kubectl delete namespace inventory dbadmin
 
 ```bash
 cd ~/zpp-proof
-for f in 0*.txt 0*.json; do sed -E 's/[0-9]{12}/<ACCOUNT_ID>/g' "$f" > "masked-$f"; done
-grep -L '<ACCOUNT_ID>' masked-* ; grep -E '[0-9]{12}' masked-* && echo "UNMASKED ID FOUND"
+for f in 0*.txt 0*.json; do
+  sed -E -e 's/[0-9]{12}/<ACCOUNT_ID>/g' \
+         -e 's/[a-z0-9-]+\.[a-z0-9]+\.us-east-1\.rds\.amazonaws\.com/<RDS_HOST>/g' \
+         -e 's/10\.[0-9]+\.[0-9]+\.[0-9]+/<PRIVATE_IP>/g' "$f" > "masked-$f"; done
+grep -lE '[0-9]{12}|rds\.amazonaws\.com' masked-* && echo "UNMASKED VALUE FOUND"
 ```
 
 Only `masked-*` files are pasted into Jira or GitHub. The last command must
@@ -370,6 +412,10 @@ All lists must be empty (secrets scheduled for deletion count as gone).
 | `psql: ... certificate verify failed` | CA bundle missing or wrong host name | Re-create the `rds-ca` config map; use the endpoint host, not an IP |
 | P2 `PAM authentication failed` for `svc_inventory` | `rds_iam` not granted, name case differs, or token older than 15 minutes | Re-check `03-roles.txt`; re-run the probe for a fresh token |
 | Fewer than 40 sessions | Connection limit or a slow token step | Read `06-load-result.txt` error counts; do not raise limits during the test |
+| `gh pr merge`: head branch is not up to date | Branch protection requires the latest `main` in the PR | `gh pr update-branch <n> --rebase`, wait for checks, re-read the plan, then merge (pre-flight step 8) |
+| HTTP 503 from api.github.com on merge | GitHub-side error; the merge may or may not have happened | `gh pr view <n> --json state`; retry only if `OPEN`; check githubstatus.com |
+| kubectl behaves oddly or warns about versions | Client more than one minor version from the cluster | Pre-flight step 7: install the matching minor with its checksum |
+| A rejected deployment shows the apply jobs as `failure` | GitHub reports a job rejected at an environment gate as failed | Confirm with `gh api repos/<owner>/<repo>/actions/runs/<id>/approvals` (`rejected`) and that no steps ran |
 
 ## References
 
