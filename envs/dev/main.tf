@@ -59,8 +59,11 @@ module "eks" {
 module "rds" {
   source = "../../modules/rds"
 
-  name                = "${var.project}-${var.environment}"
-  engine_version      = "18.6"
+  name           = "${var.project}-${var.environment}"
+  engine_version = "18.6"
+  # 2 GiB: 1 GiB left about 100 MiB free at rest, below the headroom AWS
+  # gives for IAM database authentication (ADR-005, decision 4 amendment).
+  instance_class      = "db.t4g.small"
   vpc_id              = module.vpc.vpc_id
   database_subnet_ids = module.vpc.database_subnet_ids
 

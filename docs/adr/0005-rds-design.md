@@ -1,6 +1,6 @@
 # ADR-005: RDS PostgreSQL design for the dev environment
 
-- Status: Accepted
+- Status: Accepted (amended 2026-11-24: decision 4, instance class)
 - Date: 2026-11-08
 - Deciders: Platform Engineering
 
@@ -43,7 +43,7 @@ No password is readable from state or saved plans.
 
 Chosen: **A**. `iam_database_authentication_enabled = true` now; the `rds-db:connect` policy (scoped by the instance `resource_id` output) and the database users come with ZPP-37 and later tickets. The master user is for administration only, never for applications.
 
-AWS states that IAM database authentication needs 300 to 1,000 MiB of extra memory on the instance for reliable connectivity. db.t4g.micro has 1 GiB in total, so it stays the initial dev choice but is not yet shown to be large enough. ZPP-37 must prove it: connect from a pod through Pod Identity as a service-specific database user, run the expected connection pool, and record freeable memory before and after. If headroom is too low, move to db.t4g.small (decision 4).
+AWS states that IAM database authentication needs 300 to 1,000 MiB of extra memory on the instance for reliable connectivity. ZPP-37 (2026-11-24) proved the login path and measured db.t4g.micro: about 102 MiB free at rest, so the instance class moved to db.t4g.small (decision 4).
 
 ### 3. Availability
 
@@ -58,11 +58,14 @@ Chosen: **A**. Dev is destroyed after each session, so a standby adds cost witho
 
 | Option | vCPU / memory | Approx. cost per hour |
 |---|---|---|
-| **A. db.t4g.micro** (chosen) | 2 / 1 GiB, Graviton (Arm) | $0.016 |
+| A. db.t4g.micro (chosen 2026-11-08, replaced 2026-11-24) | 2 / 1 GiB, Graviton (Arm) | $0.016 |
 | B. db.t3.micro | 2 / 1 GiB, Intel | $0.018 |
-| C. db.t4g.small | 2 / 2 GiB | $0.032 |
+| **C. db.t4g.small** (chosen 2026-11-24) | 2 / 2 GiB, Graviton (Arm) | $0.032 |
+| D. db.t4g.medium | 2 / 4 GiB, Graviton (Arm) | about $0.065 |
 
-Chosen: **A**. The operator confirmed on 2026-11-08 that us-east-1 offers PostgreSQL 18.6 on db.t4g.micro (`aws rds describe-orderable-db-instance-options --engine postgres --engine-version 18.6 --db-instance-class db.t4g.micro --region us-east-1`), and the dev apply created the instance with that combination. The pinned values are in `envs/dev/main.tf` (`engine_version`) and `modules/rds/variables.tf` (`instance_class` default). Burstable is fine for dev test sessions; prod sizing is decided with load data. `instance_class` is a module variable. Open risk: memory headroom once IAM authentication is in use (decision 2).
+**Amendment (2026-11-24): C.** In ZPP-37, 40 concurrent IAM-authenticated sessions for 10 minutes all succeeded with no failed logins, but minimum FreeableMemory was about 101 MiB during the load and about 102 MiB at rest. That is below the threshold set before the test (256 MiB) and below the 300 to 1,000 MiB AWS gives for IAM database authentication (decision 2). The load itself changed memory by about 1 MiB, so the limit is the instance size, not the pool. Six services will store data and Spring Boot's default pool is 10 connections each, so the expected pool is larger than the one tested. C doubles memory; at the apply, test and destroy rhythm it costs well under $1 a month more than A. D is more than dev needs; prod sizing is decided separately with load data. The class is set explicitly in `envs/dev/main.tf`; the module default stays a variable. Next AWS session: measure FreeableMemory at rest on C first, then set the headroom threshold and the per-service pool limit from that measurement (the source of each number is written in the ticket).
+
+Original choice (2026-11-08): **A**. The operator confirmed on 2026-11-08 that us-east-1 offers PostgreSQL 18.6 on db.t4g.micro (`aws rds describe-orderable-db-instance-options --engine postgres --engine-version 18.6 --db-instance-class db.t4g.micro --region us-east-1`), and the dev apply created the instance with that combination. The pinned values are in `envs/dev/main.tf` (`engine_version`) and `modules/rds/variables.tf` (`instance_class` default). Burstable is fine for dev test sessions; prod sizing is decided with load data. `instance_class` is a module variable. Open risk: memory headroom once IAM authentication is in use (decision 2).
 
 ### 5. Version and upgrades
 
@@ -103,18 +106,18 @@ Automated backups are never off: dev keeps one day. The setting is verified (a l
 
 | Item while running | Approx. per hour |
 |---|---|
-| db.t4g.micro, single-AZ | $0.016 |
+| db.t4g.small, single-AZ | $0.032 |
 | 20 GiB gp3 storage | about $0.003 |
 | KMS key, Secrets Manager secret, logs | about $0.003 |
-| **Total** | **about $0.02** |
+| **Total** | **about $0.04** |
 
-RDS adds about 15 minutes to an apply and about $0.25 a week at the current test rhythm. Within the $30 budget with the EKS costs from ADR-004.
+RDS adds about 15 minutes to an apply and about $0.50 a week at the current test rhythm. Within the $30 budget with the EKS costs from ADR-004.
 
 ## Consequences
 
 - No database password exists in the repository, variables, plan output or state; verified by searching the whole state.
 - Applications need IAM-auth-capable clients and a database user per service; that work lands with Pod Identity.
-- db.t4g.micro may be too small once IAM authentication is used; ZPP-37 measures it.
+- db.t4g.micro proved too small for IAM authentication headroom (ZPP-37); dev now uses db.t4g.small. The sum of all services' maximum pool sizes must be checked against the measured headroom whenever a service is added.
 - Reading the master password for administration needs `secretsmanager:GetSecretValue` and `kms:Decrypt` on our key; it is read into a shell variable, never printed.
 - Minor versions fall behind until someone raises a pull request; reviewed at each sprint review. RDS may still force a minor upgrade (critical security fix or end of support), and the code is then updated to match.
 - Dev data does not survive a destroy; there is no data worth keeping in dev.
@@ -129,9 +132,15 @@ The following ZPP-36 checks passed on 2026-11-08 in us-east-1; results are in th
 - One inbound rule from the cluster security group; no outbound rules.
 - Storage and secret on the customer managed key; backup retention 1 day (setting only, restore not yet tested); logs 7 days.
 
+The following ZPP-37 checks ran on 2026-11-24; results are in the [post-merge verification comment on zen-infra PR #24](https://github.com/abdurahim50/zen-infra/pull/24#issuecomment-7140253670):
+
+- A pod with the inventory service account gets the inventory role through Pod Identity and logs in as `svc_inventory` with an IAM token over `sslmode=verify-full`.
+- A pod with another service account gets no AWS credentials; the inventory role is refused as the master user and as another IAM-enabled user.
+- Memory headroom on db.t4g.micro failed the pre-set threshold (about 101 MiB minimum against 256 MiB); this led to the decision 4 amendment.
+
 Pending:
 
-- ZPP-37: a pod logging in through Pod Identity as a service-specific database user, and memory headroom on db.t4g.micro under the expected connection pool (pool size, duration and pass/fail threshold set in the ticket before the test).
+- Memory headroom on db.t4g.small: baseline at rest measured first, then the threshold and pool limit set from it (ZPP-63).
 - ZPP-10: a restore test (restore time recorded, known row checked on the restored instance).
 
 ## Control mapping (mapped, not certified)
