@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Dev environment. Network layout per ADR-000; NAT per ADR-001 (one shared
-# NAT gateway); EKS per ADR-004; RDS per ZPP-36. Everything here is created
-# and destroyed with each working session.
+# NAT gateway); EKS per ADR-004; RDS per ADR-005; Pod Identity per ADR-004.
+# Everything here is created and destroyed with each working session.
 # -----------------------------------------------------------------------------
 data "aws_caller_identity" "current" {}
 
@@ -72,4 +72,22 @@ module "rds" {
   deletion_protection   = false
   skip_final_snapshot   = true
   backup_retention_days = 1
+}
+
+# Pod Identity for the inventory service: pods using the inventory/inventory
+# service account get a role that can only log in to PostgreSQL as
+# svc_inventory (IAM database authentication, ADR-005).
+module "pod_identity_inventory" {
+  source = "../../modules/pod-identity"
+
+  name            = "${var.project}-${var.environment}"
+  service         = "inventory"
+  cluster_name    = module.eks.cluster_name
+  cluster_arn     = module.eks.cluster_arn
+  namespace       = "inventory"
+  service_account = "inventory"
+  db_resource_id  = module.rds.resource_id
+  db_user         = "svc_inventory"
+
+  permissions_boundary_arn = local.permissions_boundary_arn
 }
